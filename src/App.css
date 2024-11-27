@@ -1,0 +1,90 @@
+.titlebar {
+  height: 30px;
+  background: #329ea3;
+  user-select: none;
+  display: flex;
+  justify-content: flex-end;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+.titlebar-button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 30px;
+  height: 30px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.titlebar-button:hover {
+  background: #5bbec3;
+}
+
+body,
+html {
+  /* backdrop-filter: blur(10px); */
+  background: white;
+  padding: 0;
+  margin: 0;
+
+  font-family: "Agave Nerd Font";
+  height: 100vh;
+}
+
+main {
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+section#content {
+  /* padding: 0px; */
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  /* max-width: 500px; */
+  gap: 10px;
+  padding: 10px;
+  /* flex: 1; */
+  /* background: blue; */
+}
+
+form > div {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  /* justify-content: space-between; */
+  align-items: center;
+}
+
+form label {
+  margin-right: 5px;
+}
+
+form input {
+  padding: 5px;
+  /* flex: 1; */
+  max-width: 130px;
+}
+
+form button {
+  padding: 5px;
+  /* max-width: 200px; */
+}
+
+#explorer {
+  white-space: pre-wrap;
+  word-break: break-all;
+
+  height: 100%;
+  padding: 0;
+}
