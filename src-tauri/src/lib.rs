@@ -2,7 +2,8 @@ use chrono::NaiveDate;
 use ftp::FtpStream;
 use lazy_static::lazy_static;
 use serde_json::json;
-use std::sync::Mutex;
+use std::{path, sync::Mutex};
+use tauri::ipc::Response;
 use tauri::Manager;
 
 lazy_static! {
@@ -113,8 +114,33 @@ fn go_up_directory() -> Result<Vec<serde_json::Value>, String> {
     }
 }
 
+// #[tauri::command]
+// fn upload_files(files: Vec<(String, String)>) -> Result<Vec<serde_json::Value>, String> {
+//     // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
+//     let mut ftp_stream = FTP_STREAM
+//         .lock()
+//         .map_err(|e| format!("Failed to acquire lock: {}", e))?;
+//     // Attempt to connect if there is no existing connection
+//     let ftp_stream = ftp_stream
+//         .as_mut()
+//         .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
+//     // Upload each file
+//     for (file_path, file_data) in files {
+//         upload_file(ftp_stream, file_path, file_data)
+//             .map_err(|e| format!("Error uploading file: {}", e))?;
+//     }
+//     // Return the list of files
+//     list_files(ftp_stream)
+// }
+
 #[tauri::command]
-fn upload_files(files: Vec<(String, String)>) -> Result<Vec<serde_json::Value>, String> {
+fn read_file(path: &str) -> Response {
+    let data = std::fs::read(path).unwrap();
+    tauri::ipc::Response::new(data)
+}
+
+#[tauri::command]
+fn delete_files(file_names: Vec<String>) -> Result<Vec<serde_json::Value>, String> {
     // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
     let mut ftp_stream = FTP_STREAM
         .lock()
@@ -125,24 +151,46 @@ fn upload_files(files: Vec<(String, String)>) -> Result<Vec<serde_json::Value>, 
         .as_mut()
         .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
 
-    // Upload each file
-    for (file_path, file_data) in files {
-        upload_file(ftp_stream, file_path, file_data)
-            .map_err(|e| format!("Error uploading file: {}", e))?;
+    // Delete each file
+    for file_name in file_names {
+        delete_file(ftp_stream, file_name).map_err(|e| format!("Error deleting file: {}", e))?;
     }
 
     // Return the list of files
     list_files(ftp_stream)
 }
 
-fn upload_file(stream: &mut FtpStream, file_path: String, file_data: String) -> Result<(), String> {
-    // Create a reader from the file data
-    let mut reader = std::io::Cursor::new(file_data.into_bytes());
+#[tauri::command]
+fn refresh_files() -> Result<Vec<serde_json::Value>, String> {
+    // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
+    let mut ftp_stream = FTP_STREAM
+        .lock()
+        .map_err(|e| format!("Failed to acquire lock: {}", e))?;
 
-    // Attempt to upload the file
-    match stream.put(file_path.as_str(), &mut reader) {
+    // Attempt to connect if there is no existing connection
+    let ftp_stream = ftp_stream
+        .as_mut()
+        .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
+
+    // Return the list of files
+    list_files(ftp_stream)
+}
+
+// fn upload_file(stream: &mut FtpStream, file_path: String, file_data: String) -> Result<(), String> {
+//     // Create a reader from the file data
+//     let mut reader = std::io::Cursor::new(file_data.into_bytes());
+//     // Attempt to upload the file
+//     match stream.put(file_path.as_str(), &mut reader) {
+//         Ok(_) => Ok(()),
+//         Err(e) => Err(format!("Failed to upload file: {}", e)),
+//     }
+// }
+
+fn delete_file(stream: &mut FtpStream, file_name: String) -> Result<(), String> {
+    // Attempt to delete the file
+    match stream.rm(file_name.as_str()) {
         Ok(_) => Ok(()),
-        Err(e) => Err(format!("Failed to upload file: {}", e)),
+        Err(e) => Err(format!("Failed to delete file: {}", e)),
     }
 }
 
@@ -279,7 +327,9 @@ pub fn run() {
             change_directory,
             disconnect_ftp_server,
             go_up_directory,
-            upload_files
+            refresh_files,
+            delete_files,
+            read_file
         ])
         .setup(move |app| {
             let window = app.get_webview_window("main").unwrap();

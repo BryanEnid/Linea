@@ -2,16 +2,84 @@ import React from "react";
 import { FileExplorerRow } from "@/types";
 import { sizeFormatter, dateFormatter } from "@/utils";
 import { TableVirtuoso } from "react-virtuoso";
-import { LucideFile, LucideFolderOpen, LucideServer } from "lucide-react";
-import { Separator } from "./ui/separator";
-import { cn } from "@/lib/utils";
-// import { Menu, MenuItem, MenuItemOptions } from "@tauri-apps/api/menu";
+import { LucideDownload, LucideFile, LucideFolderOpen, LucideFolderPlus, LucideRotateCw, LucideServer, LucideTrash } from "lucide-react";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuSeparator } from "./ui/context-menu";
+import { useDirectoryStore } from "@/store/directoryStore";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "./ui/button";
 
 const columnSizes = {
   "col-1": "flex-[2] flex items-center",
   "col-2": "flex-[1] flex items-center",
   "col-3": "flex-[0.5] flex items-center",
   "col-4": "flex-[1] flex items-center",
+};
+
+const FileContextMenuActions = ({ fileName }) => {
+  const { deleteFiles, refreshFiles, downloadFile } = useDirectoryStore();
+  const deleteRef = React.useRef(null);
+
+  return (
+    <>
+      <AlertDialog>
+        <ContextMenu>
+          <ContextMenuTrigger className="flex">{fileName}</ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem className="flex items-center" onClick={() => downloadFile(fileName)}>
+              <LucideDownload className="mr-2 mb-[2px] h-4 w-4" />
+              Download
+            </ContextMenuItem>
+
+            <ContextMenuSeparator />
+
+            <ContextMenuItem className="flex items-center">
+              <LucideFolderPlus className="mr-2 mb-[2px] h-4 w-4" /> Create Folder
+            </ContextMenuItem>
+            <ContextMenuItem className="flex items-center" onClick={refreshFiles}>
+              <LucideRotateCw className="mr-2 mb-[2px] h-4 w-4" /> Refresh
+            </ContextMenuItem>
+
+            <ContextMenuSeparator />
+
+            <ContextMenuItem className="flex items-center text-destructive" onClick={() => deleteRef.current.click()}>
+              <LucideTrash className="mr-2 mb-[2px] h-4 w-4" />
+              Delete
+            </ContextMenuItem>
+            <ContextMenuItem>Rename</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+
+        <AlertDialogTrigger asChild>
+          <Button className="hidden " ref={deleteRef} />
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete{" "}
+              <span className="whitespace-nowrap px-1.5 py-1 bg-muted rounded-md">{fileName}</span>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive" onClick={() => deleteFiles([fileName])}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
 };
 
 export const FileExplorer = ({ data, onRowClick }: { data: FileExplorerRow[]; onRowClick: (file: FileExplorerRow) => void }) => {
@@ -28,7 +96,7 @@ export const FileExplorer = ({ data, onRowClick }: { data: FileExplorerRow[]; on
     document.addEventListener("contextmenu", (event) => event.preventDefault());
   }, []);
 
-  if (!data.length)
+  if (data.length <= 1)
     return (
       <>
         <div className="flex flex-col gap-4 h-full items-center justify-center opacity-30">
@@ -56,7 +124,8 @@ export const FileExplorer = ({ data, onRowClick }: { data: FileExplorerRow[]; on
       }}
       fixedHeaderContent={() => (
         <tr className="bg-primary-foreground">
-          <th className="pl-2">File Name</th>
+          <th></th>
+          <th>File Name</th>
           <th>File Type</th>
           <th>Size</th>
           <th>Date</th>
@@ -65,75 +134,19 @@ export const FileExplorer = ({ data, onRowClick }: { data: FileExplorerRow[]; on
       itemContent={(index, file) => {
         return (
           <>
-            <td className="max-w-[300px] truncate pl-2 pr-6" onDoubleClick={() => onRowClick(file)}>
+            <td className="pl-2 max-w-[20px]">
               {file.file_type === "directory" ? (
                 <LucideFolderOpen className="inline mr-2 stroke-primary" size={20} />
               ) : (
                 <LucideFile className="inline mr-2 stroke-primary" size={20} />
               )}
-              {file.file_name}
+            </td>
+            <td className="max-w-[300px] truncate pr-6 cursor-pointer select-none" onDoubleClick={() => onRowClick(file)}>
+              <FileContextMenuActions fileName={file.file_name} />
             </td>
             <td className="max-w-[100px]">{file.file_type}</td>
             <td className="max-w-[100px]">{file.file_type === "directory" ? "" : sizeFormatter(Number(file.size))}</td>
             <td className="max-w-[100px]">{dateFormatter(file.date)}</td>
-          </>
-        );
-      }}
-    />
-  );
-
-  return (
-    <TableVirtuoso
-      data={data}
-      components={{
-        Table: (props) => {
-          return (
-            <table style={props.style} className="w-full">
-              {props.children}
-            </table>
-          );
-        },
-        TableHead: (props) => {
-          return (
-            <>
-              <thead className="border-b-2 fixed w-screen z-10">{props.children}</thead>
-              {/* <div className="mt-12" /> */}
-            </>
-          );
-        },
-        TableBody: (props) => {
-          return <tbody className="flex flex-col justify-start">{props.children}</tbody>;
-        },
-        TableRow: (props) => {
-          return (
-            <button className="flex justify-center items-center hover:bg-primary/10 animate-in ease-in-out duration-200 focus:bg-primary/40 focus:text-secondary">
-              {props.children}
-            </button>
-          );
-        },
-      }}
-      fixedHeaderContent={() => (
-        <tr className="h-10 bg-primary-foreground flex ">
-          <th className={cn("ml-4", columnSizes["col-1"])}>File Name</th>
-          <th className={columnSizes["col-2"]}>File Type</th>
-          <th className={columnSizes["col-3"]}>Size</th>
-          <th className={columnSizes["col-4"]}>Date</th>
-        </tr>
-      )}
-      itemContent={(index, file) => {
-        return (
-          <>
-            <td className={cn("gap-3 mt-1 ml-4", columnSizes["col-1"])} onDoubleClick={() => onRowClick(file)}>
-              {file.file_type === "directory" ? (
-                <LucideFolderOpen size={20} fill="#e5c459" stroke="#bda24a" />
-              ) : (
-                <LucideFile size={20} fill="#b4b4b4" stroke="#8d8d8d" />
-              )}{" "}
-              {file.file_name}
-            </td>
-            <td className={cn("", columnSizes["col-2"])}>{file.file_type}</td>
-            <td className={cn("", columnSizes["col-3"])}>{file.file_type === "directory" ? "" : sizeFormatter(Number(file.size))}</td>
-            <td className={cn("", columnSizes["col-4"])}>{dateFormatter(file.date)}</td>
           </>
         );
       }}
