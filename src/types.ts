@@ -1,4 +1,4 @@
-export interface File {
+export interface FileExplorerRow {
   permissions: string;
   owner: string;
   group: string;
