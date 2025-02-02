@@ -10,23 +10,22 @@ import { LucideServer, LucideUser } from "lucide-react";
 import { Input } from "./ui/input";
 import { AnimatedSubscribeButton } from "./ui/animated-subscribe-button";
 import { CheckIcon, ChevronDown, ChevronRightIcon, Loader2 } from "lucide-react";
+import { useConnectStore } from "@/store/connectStore";
+import { Button } from "./ui/button";
+import { useDirectoryStore } from "@/store/directoryStore";
 
 // import { FileUploaderButton } from "@/components/FileUploaderButton";
 
 interface ConnectModalProps {
   show?: boolean;
-  onConnected?: (files: FileExplorerRow[]) => void;
+  onConnected?: () => void;
   onOpenChange?: (open: boolean) => void;
 }
 
 export const ConnectModal = ({ show, onConnected, onOpenChange }: ConnectModalProps) => {
   const [error, setError] = React.useState("");
-  const [isConnected, setIsConnected] = React.useState(false);
-  const [files, setFiles] = React.useState<FileExplorerRow[]>([]);
-
-  React.useEffect(() => {
-    files.length > 0 && onConnected?.(files);
-  }, [files]);
+  const { setAddress, setConnected, connected } = useConnectStore();
+  const { setFiles } = useDirectoryStore();
 
   const handleConnect = (e: React.FormEvent<HTMLFormElement>) => {
     const address = e.currentTarget.address.value + ":" + (e.currentTarget.port.value || "21");
@@ -36,13 +35,12 @@ export const ConnectModal = ({ show, onConnected, onOpenChange }: ConnectModalPr
       username: e.currentTarget.username.value,
       password: e.currentTarget.password.value,
     })
-      .then((res) => {
-        const sortedFiles = sortFilesByName(res as FileExplorerRow[]);
-        sortedFiles.unshift({ file_name: "..", file_type: "directory", date: "", size: "0" } as FileExplorerRow);
-
-        setIsConnected(true);
+      .then((res: FileExplorerRow[]) => {
+        setConnected(true);
+        setAddress(address);
+        setFiles(res);
         setError("");
-        setFiles(sortedFiles);
+        onConnected();
       })
       .catch(setError);
   };
@@ -50,9 +48,10 @@ export const ConnectModal = ({ show, onConnected, onOpenChange }: ConnectModalPr
   const handleDisconnect = () => {
     invoke("disconnect_ftp_server")
       .then(() => {
-        setIsConnected(false);
-        setFiles([]);
+        setConnected(false);
+        setAddress("0.0.0.0:21");
         setError("");
+        setFiles([]);
       })
       .catch((err) => console.error(err));
   };
@@ -60,26 +59,12 @@ export const ConnectModal = ({ show, onConnected, onOpenChange }: ConnectModalPr
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    if (!isConnected) {
+    if (!connected) {
       handleConnect(e);
     } else {
       handleDisconnect();
     }
   };
-
-  // const handleFileUpload = (files: { file: File; content: string }[]) => {
-  //   // Transform the files with content into tuples
-  //   const filesForBackend = files.map(({ file, content }) => [file.name, content]);
-
-  //   // Call the Tauri command
-  //   invoke("upload_files", { files: filesForBackend })
-  //     .then((res) => {
-  //       const sortedFiles = sortFilesByName(res as FileExplorerRow[]);
-  //       sortedFiles.unshift({ file_name: "..", file_type: "directory", date: "", size: "0" } as FileExplorerRow);
-  //       setFiles(sortedFiles);
-  //     })
-  //     .catch((err) => console.error("Upload error:", err));
-  // };
 
   return (
     <Dialog open={show} onOpenChange={onOpenChange}>
@@ -94,16 +79,16 @@ export const ConnectModal = ({ show, onConnected, onOpenChange }: ConnectModalPr
           <div className="flex flex-col gap-2">
             <label>Address</label>
             <div className="flex flex-row gap-2">
-              <Input name="address" type="text" placeholder="Address" required defaultValue={"192.168.1.64"} />
-              <Input name="port" type="text" placeholder="Port" required defaultValue={"5000"} />
+              <Input name="address" type="text" placeholder="Address" required defaultValue={"192.168.1.64"} disabled={connected} />
+              <Input name="port" type="text" placeholder="Port" required defaultValue={"5000"} disabled={connected} />
             </div>
             <div>
               <label>Username</label>
-              <Input name="username" type="text" placeholder="Username" required defaultValue={"bt"} />
+              <Input name="username" type="text" placeholder="Username" required defaultValue={"bt"} disabled={connected} />
             </div>
             <div>
               <label>Password</label>
-              <Input name="password" type="password" placeholder="Password" required defaultValue={"bt"} />
+              <Input name="password" type="password" placeholder="Password" required defaultValue={"bt"} disabled={connected} />
             </div>
           </div>
 
@@ -128,12 +113,9 @@ export const ConnectModal = ({ show, onConnected, onOpenChange }: ConnectModalPr
           )}
 
           <div className="flex flex-col items-center">
-            <AnimatedSubscribeButton className="w-36" type="submit">
-              <span className="group inline-flex items-center">Connect</span>
-              <span className="group inline-flex items-center ">
-                <Loader2 className="animate-spin" />
-              </span>
-            </AnimatedSubscribeButton>
+            <Button variant="default" className="w-36" type="submit">
+              {connected ? "Disconnect" : "Connect"}
+            </Button>
           </div>
         </form>
       </DialogContent>

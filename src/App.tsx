@@ -5,28 +5,26 @@ import { sortFilesByName, sortFilesByType } from "@/utils";
 import { FileExplorer } from "@/components/FileExplorer";
 import { Titlebar } from "./components/Titlebar";
 import { ConnectModal } from "./components/ConnectModal";
+import { useConnectStore } from "./store/connectStore";
+import { useDirectoryStore } from "./store/directoryStore";
 import "./Global.css";
-import { MenuBar } from "./components/MenuBar";
 
 function App() {
-  const [files, setFiles] = React.useState<FileExplorerRow[]>([]);
+  // const [files, setFiles] = React.useState<FileExplorerRow[]>([]);
   const [showConnectModal, setShowConnectModal] = React.useState(true);
+  const { connected } = useConnectStore();
+  const { files, setFiles } = useDirectoryStore();
+
+  React.useEffect(() => {
+    if (!connected && files.length > 0) setFiles([]);
+  }, [connected]);
 
   const handleRowClick = (rowData: FileExplorerRow) => {
     if (rowData.file_type === "directory") {
       invoke("change_directory", { directory: rowData.file_name })
-        .then((res) => {
-          const sortedFiles = sortFilesByType(sortFilesByName(res as FileExplorerRow[]));
-          sortedFiles.unshift({ file_name: "..", file_type: "directory", date: "", size: "0" } as FileExplorerRow);
-          setFiles(sortedFiles);
-        })
+        .then(setFiles)
         .catch((err) => console.error(err));
     }
-  };
-
-  const handleOnConnect = (files: FileExplorerRow[]) => {
-    setFiles(files);
-    setShowConnectModal(false);
   };
 
   const handleTitleBarClick = (item) => {
@@ -41,7 +39,7 @@ function App() {
       <section id="content" className="h-full flex flex-col relative">
         {/* <MenuBar /> */}
 
-        <ConnectModal show={showConnectModal} onConnected={handleOnConnect} onOpenChange={setShowConnectModal} />
+        <ConnectModal show={showConnectModal} onConnected={() => setShowConnectModal(false)} onOpenChange={setShowConnectModal} />
 
         {/* Explorer */}
         <div className="flex-1 m-2">

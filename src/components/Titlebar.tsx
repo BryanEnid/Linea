@@ -1,12 +1,18 @@
 // import React from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LucideAppWindow, LucideMinus, LucideX } from "lucide-react";
+import { LucideAppWindow, LucideMinus, LucideRefreshCw, LucideRotateCw, LucideX } from "lucide-react";
 import { ModeToggle } from "./ModeToggle";
 import { Button } from "./ui/button";
+import { useConnectStore } from "@/store/connectStore";
+import { FileUploaderButton } from "./FileUploaderButton";
+import { useDirectoryStore } from "@/store/directoryStore";
 
 const appWindow = getCurrentWindow();
 
 export const Titlebar = ({ onMenuClickItem }: { onMenuClickItem: (item: string) => void }) => {
+  const { address, connected } = useConnectStore();
+  const { refreshFiles } = useDirectoryStore();
+
   return (
     <>
       <div
@@ -14,7 +20,11 @@ export const Titlebar = ({ onMenuClickItem }: { onMenuClickItem: (item: string) 
         data-tauri-drag-region>
         <div className="flex justify-center items-center m-3 gap-4">
           <ModeToggle />
-          <Button onClick={() => onMenuClickItem("connect")}>Connect</Button>
+          <Button onClick={() => onMenuClickItem("connect")}>{connected ? address : "Connect"}</Button>
+          <FileUploaderButton disabled={!connected} />
+          <Button variant="outline" size="icon" onClick={() => refreshFiles()}>
+            <LucideRotateCw />
+          </Button>
         </div>
 
         <div>
