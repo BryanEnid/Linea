@@ -113,6 +113,39 @@ fn go_up_directory() -> Result<Vec<serde_json::Value>, String> {
     }
 }
 
+#[tauri::command]
+fn upload_files(files: Vec<(String, String)>) -> Result<Vec<serde_json::Value>, String> {
+    // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
+    let mut ftp_stream = FTP_STREAM
+        .lock()
+        .map_err(|e| format!("Failed to acquire lock: {}", e))?;
+
+    // Attempt to connect if there is no existing connection
+    let ftp_stream = ftp_stream
+        .as_mut()
+        .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
+
+    // Upload each file
+    for (file_path, file_data) in files {
+        upload_file(ftp_stream, file_path, file_data)
+            .map_err(|e| format!("Error uploading file: {}", e))?;
+    }
+
+    // Return the list of files
+    list_files(ftp_stream)
+}
+
+fn upload_file(stream: &mut FtpStream, file_path: String, file_data: String) -> Result<(), String> {
+    // Create a reader from the file data
+    let mut reader = std::io::Cursor::new(file_data.into_bytes());
+
+    // Attempt to upload the file
+    match stream.put(file_path.as_str(), &mut reader) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("Failed to upload file: {}", e)),
+    }
+}
+
 fn list_files(stream: &mut FtpStream) -> Result<Vec<serde_json::Value>, String> {
     // Attempt to list files
     match stream.list(None) {
@@ -173,14 +206,13 @@ fn list_files(stream: &mut FtpStream) -> Result<Vec<serde_json::Value>, String> 
 
                     // Check if it's a directory
                     let file_type = if permissions.starts_with('d') {
-                        "directory" // Directory
+                        "directory".to_string() // Directory
                     } else {
                         // If it's not a directory, extract the file extension
-                        if let Some(extension) = file_name.split('.').last() {
-                            extension // Return the file extension
-                        } else {
-                            "unknown file" // If there's no extension
-                        }
+                        file_name
+                            .rsplit_once('.')
+                            .map(|(_, ext)| ext.to_lowercase())
+                            .unwrap_or_else(|| "".to_string())
                     };
 
                     // Return the tuple: file name (for sorting) and a JSON object with parsed information
@@ -236,26 +268,38 @@ use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(StateFlags::POSITION | StateFlags::SIZE)
+                .build(),
+        )
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             connect_ftp_server,
             change_directory,
             disconnect_ftp_server,
-            go_up_directory
+            go_up_directory,
+            upload_files
         ])
         .setup(move |app| {
             let window = app.get_webview_window("main").unwrap();
-
             // app.handle().save_window_state()
-            app.handle().save_window_state(StateFlags::all()).unwrap();
+            app.handle()
+                .save_window_state(StateFlags::POSITION | StateFlags::SIZE)
+                .unwrap();
 
             window.open_devtools();
 
+            let _ = window.set_decorations(false);
+            let _ = window.set_shadow(false);
+            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                width: 800,
+                height: 600,
+            }));
             // #[cfg(target_os = "macos")]
             // window.set_transparent_titlebar(true, true);
 
-            match window.restore_state(StateFlags::all()) {
+            match window.restore_state(StateFlags::POSITION | StateFlags::SIZE) {
                 Ok(_) => Ok(()),
                 Err(e) => Err(e.into()),
             }
