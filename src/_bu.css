@@ -1,31 +1,5 @@
-.titlebar {
-  height: 30px;
-  background: #329ea3;
-  user-select: none;
-  display: flex;
-  justify-content: flex-end;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-}
-.titlebar-button {
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  width: 30px;
-  height: 30px;
-  user-select: none;
-  -webkit-user-select: none;
-}
-.titlebar-button:hover {
-  background: #5bbec3;
-}
-
 body,
 html {
-  /* backdrop-filter: blur(10px); */
-  background: white;
   padding: 0;
   margin: 0;
 
@@ -33,7 +7,17 @@ html {
   height: 100vh;
 }
 
+button,
+input {
+  font-family: inherit;
+  font-size: 1em;
+}
+
 main {
+  /* margin: 10px; */
+  background: white;
+  border-radius: 13.33px;
+
   display: flex;
   height: 100vh;
   flex-direction: column;
