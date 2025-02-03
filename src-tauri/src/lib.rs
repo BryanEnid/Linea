@@ -133,10 +133,30 @@ fn go_up_directory() -> Result<Vec<serde_json::Value>, String> {
 //     list_files(ftp_stream)
 // }
 
+// #[tauri::command]
+// fn read_file(path: &str) -> Response {
+//     let data = std::fs::read(path).unwrap();
+//     tauri::ipc::Response::new(data);
+// }
+
 #[tauri::command]
-fn read_file(path: &str) -> Response {
-    let data = std::fs::read(path).unwrap();
-    tauri::ipc::Response::new(data)
+async fn download_file(file_name: String, reader: tauri::ipc::Channel<&[u8]>) {
+    let mut ftp_stream = FTP_STREAM
+        .lock()
+        .map_err(|e| format!("Failed to acquire lock: {}", e))
+        .unwrap();
+
+    let ftp_stream = ftp_stream
+        .as_mut()
+        .ok_or_else(|| "Failed to establish FTP stream".to_string())
+        .unwrap();
+
+    let buffer = std::io::Cursor::new(Vec::new());
+    ftp_stream.retr(file_name.as_str(), |mut stream| {
+        std::io::copy(&mut stream, &mut buffer.clone()).unwrap();
+        reader.send(&buffer.get_ref()).unwrap();
+        Ok(())
+    });
 }
 
 #[tauri::command]
