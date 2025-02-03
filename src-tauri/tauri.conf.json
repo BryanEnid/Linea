@@ -18,8 +18,8 @@
         "resizable": true,
         "fullscreen": false,
         "visible": true,
-        "width": 0,
-        "height": 0,
+        "width": 750,
+        "height": 900,
         "shadow": false
       }
     ],

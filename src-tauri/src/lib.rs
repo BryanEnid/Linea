@@ -5,6 +5,7 @@ use serde_json::json;
 use std::{path, sync::Mutex};
 use tauri::ipc::Response;
 use tauri::Manager;
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 lazy_static! {
     // Safe, global, mutable FTP stream wrapped in a Mutex
@@ -349,7 +350,7 @@ pub fn run() {
             go_up_directory,
             refresh_files,
             delete_files,
-            read_file
+            // read_file
         ])
         .setup(move |app| {
             let window = app.get_webview_window("main").unwrap();
@@ -362,10 +363,11 @@ pub fn run() {
 
             let _ = window.set_decorations(false);
             let _ = window.set_shadow(false);
-            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-                width: 800,
-                height: 600,
-            }));
+            let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+          .inner_size(750.0, 900.0);
+
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 100.0, height: 100.0 })).unwrap();
+            
             // #[cfg(target_os = "macos")]
             // window.set_transparent_titlebar(true, true);
 
