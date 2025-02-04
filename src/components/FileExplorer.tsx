@@ -17,15 +17,10 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "./ui/button";
+import { useConnectStore } from "@/store/connectStore";
 
-const columnSizes = {
-  "col-1": "flex-[2] flex items-center",
-  "col-2": "flex-[1] flex items-center",
-  "col-3": "flex-[0.5] flex items-center",
-  "col-4": "flex-[1] flex items-center",
-};
-
-const FileContextMenuActions = ({ fileName }) => {
+const FileContextMenuActions = ({ file }: { file: FileExplorerRow }) => {
+  const { file_name } = file;
   const { deleteFiles, refreshFiles, downloadFile } = useDirectoryStore();
   const deleteRef = React.useRef(null);
 
@@ -33,9 +28,9 @@ const FileContextMenuActions = ({ fileName }) => {
     <>
       <AlertDialog>
         <ContextMenu>
-          <ContextMenuTrigger className="flex">{fileName}</ContextMenuTrigger>
+          <ContextMenuTrigger className="flex">{file_name}</ContextMenuTrigger>
           <ContextMenuContent>
-            <ContextMenuItem className="flex items-center" onClick={() => downloadFile(fileName)}>
+            <ContextMenuItem className="flex items-center" onClick={() => downloadFile(file)}>
               <LucideDownload className="mr-2 mb-[2px] h-4 w-4" />
               Download
             </ContextMenuItem>
@@ -67,12 +62,12 @@ const FileContextMenuActions = ({ fileName }) => {
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete{" "}
-              <span className="whitespace-nowrap px-1.5 py-1 bg-muted rounded-md">{fileName}</span>.
+              <span className="whitespace-nowrap px-1.5 py-1 bg-muted rounded-md">{file_name}</span>.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive" onClick={() => deleteFiles([fileName])}>
+            <AlertDialogAction className="bg-destructive" onClick={() => deleteFiles([file_name])}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -83,20 +78,13 @@ const FileContextMenuActions = ({ fileName }) => {
 };
 
 export const FileExplorer = ({ data, onRowClick }: { data: FileExplorerRow[]; onRowClick: (file: FileExplorerRow) => void }) => {
-  // React.useEffect(() => {
-  //   (async () => {
-  //     const menu = await Menu.new();
-  //     const menuItem = await MenuItem.new({ text: "Test" });
-  //     menu.insert([menuItem], 0);
-  //     // await menu.popup();
-  //   })();
-  // }, []);
+  const { connected } = useConnectStore();
 
   React.useEffect(() => {
     document.addEventListener("contextmenu", (event) => event.preventDefault());
   }, []);
 
-  if (data.length <= 1)
+  if (!connected)
     return (
       <>
         <div className="flex flex-col gap-4 h-full items-center justify-center opacity-30">
@@ -131,10 +119,10 @@ export const FileExplorer = ({ data, onRowClick }: { data: FileExplorerRow[]; on
           <th>Date</th>
         </tr>
       )}
-      itemContent={(index, file) => {
+      itemContent={(_, file) => {
         return (
           <>
-            <td className="pl-2 max-w-[20px]">
+            <td className="pl-2 w-[20px]">
               {file.file_type === "directory" ? (
                 <LucideFolderOpen className="inline mr-2 stroke-primary" size={20} />
               ) : (
@@ -142,11 +130,11 @@ export const FileExplorer = ({ data, onRowClick }: { data: FileExplorerRow[]; on
               )}
             </td>
             <td className="max-w-[300px] truncate pr-6 cursor-pointer select-none" onDoubleClick={() => onRowClick(file)}>
-              <FileContextMenuActions fileName={file.file_name} />
+              <FileContextMenuActions file={file} />
             </td>
-            <td className="max-w-[100px]">{file.file_type}</td>
-            <td className="max-w-[100px]">{file.file_type === "directory" ? "" : sizeFormatter(Number(file.size))}</td>
-            <td className="max-w-[100px]">{dateFormatter(file.date)}</td>
+            <td className="max-w-[100px] truncate">{file.file_type}</td>
+            <td className="maxw-[100px] truncate">{file.file_type === "directory" ? "" : sizeFormatter(Number(file.size))}</td>
+            <td className="max-w-[100px] truncate">{dateFormatter(file.date)}</td>
           </>
         );
       }}

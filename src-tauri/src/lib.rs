@@ -1,15 +1,29 @@
 use chrono::NaiveDate;
+use ftp::FtpError;
 use ftp::FtpStream;
 use lazy_static::lazy_static;
 use serde_json::json;
-use std::{path, sync::Mutex};
-use tauri::ipc::Response;
+use serde_json::Value;
+use std::fs::File;
+use std::io::Write;
+use std::sync::Mutex;
+use tauri::async_runtime::{spawn, spawn_blocking};
+use tauri::command;
+use tauri::Emitter;
 use tauri::Manager;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+struct FtpCredentials {
+    address: String,
+    username: String,
+    password: String,
+    current_path: String,
+}
 
 lazy_static! {
     // Safe, global, mutable FTP stream wrapped in a Mutex
     static ref FTP_STREAM: Mutex<Option<FtpStream>> = Mutex::new(None);
+    static ref FTP_CREDENTIALS: Mutex<Option<FtpCredentials>> = Mutex::new(None);
 }
 
 #[tauri::command]
@@ -30,182 +44,195 @@ fn disconnect_ftp_server() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn connect_ftp_server(
+async fn connect_ftp_server(
     address: &str,
     username: &str,
     password: &str,
 ) -> Result<Vec<serde_json::Value>, String> {
-    // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
-    let mut ftp_stream = FTP_STREAM
-        .lock()
-        .map_err(|e| format!("Failed to acquire lock: {}", e))?;
+    let result = spawn_blocking(move || {
+        let mut ftp_stream = FTP_STREAM
+            .lock()
+            .map_err(|e| format!("Failed to acquire lock: {}", e))?;
 
-    // Attempt to connect if there is no existing connection
-    *ftp_stream = match FtpStream::connect(address) {
-        Ok(stream) => Some(stream),
-        Err(e) => return Err(format!("Failed to connect: {}", e)),
-    };
+        *ftp_stream = match FtpStream::connect(address) {
+            Ok(stream) => Some(stream),
+            Err(e) => return Err(format!("Failed to connect: {}", e)),
+        };
 
-    // Attempt to login to the FTP server
-    let ftp_stream = ftp_stream
-        .as_mut()
-        .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
+        let ftp_stream = ftp_stream
+            .as_mut()
+            .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
 
-    // Perform the login
-    if let Err(e) = ftp_stream.login(username, password) {
-        // No need to clear the FTP connection here
-        return Err(format!("Failed to login: {}", e));
-    }
+        if let Err(e) = ftp_stream.login(username, password) {
+            return Err(format!("Failed to login: {}", e));
+        }
 
-    // Successfully connected and logged in; now call list_files
-    list_files(ftp_stream)
+        // ✅ Get initial directory (if supported)
+        let current_path = ftp_stream.pwd().unwrap_or_else(|_| "/".to_string());
+
+        // ✅ Save credentials + initial path
+        let mut credentials = FTP_CREDENTIALS.lock().unwrap();
+        *credentials = Some(FtpCredentials {
+            address: address.to_string(),
+            username: username.to_string(),
+            password: password.to_string(),
+            current_path,
+        });
+
+        list_files(ftp_stream)
+    })
+    .await
+    .map_err(|e| format!("Failed to connect: {}", e))?
 }
 
-use serde_json::Value;
-
 #[tauri::command]
-fn change_directory(directory: &str) -> Result<Vec<Value>, Vec<Value>> {
-    // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
-    let mut ftp_stream = FTP_STREAM
-        .lock()
-        .map_err(|e| vec![json!({ "error": e.to_string() })])?;
+async fn change_directory(directory: String) -> Result<Vec<Value>, Vec<Value>> {
+    let result = spawn_blocking(move || {
+        // Acquire lock on the FTP_STREAM
+        let mut ftp_stream = FTP_STREAM
+            .lock()
+            .map_err(|e| vec![json!({ "error": e.to_string() })])?;
 
-    // Attempt to connect if there is no existing connection
-    let ftp_stream = ftp_stream
-        .as_mut()
-        .ok_or_else(|| vec![json!({ "error": "Failed to establish FTP stream".to_string() })])?;
+        // Ensure there is an active FTP connection
+        let ftp_stream = ftp_stream
+            .as_mut()
+            .ok_or_else(|| vec![json!({ "error": "Failed to establish FTP stream" })])?;
 
-    // Attempt to change directory
-    match ftp_stream.cwd(directory) {
-        Ok(_) => match list_files(ftp_stream) {
-            Ok(list) => Ok(list),                       // Return the list of files as Ok
-            Err(e) => Err(vec![json!({ "error": e })]), // Wrap the error in a Vec<serde_json::Value>
-        },
-        Err(e) => {
-            if e.to_string()
-                .contains("Expected code [250], got response: 200 OK")
-            {
-                match list_files(ftp_stream) {
-                    Ok(list) => Ok(list),                       // Return the list of files as Ok
-                    Err(e) => Err(vec![json!({ "error": e })]), // Wrap the error in a Vec<serde_json::Value>
+        // Attempt to change directory
+        match ftp_stream.cwd(&directory) {
+            Ok(_) => {
+                // ✅ Update the stored path
+                let mut credentials = FTP_CREDENTIALS.lock().unwrap();
+                if let Some(creds) = credentials.as_mut() {
+                    creds.current_path = directory.to_string();
                 }
-            } else {
-                Err(vec![json!({ "error": e.to_string() })])
+
+                match list_files(ftp_stream) {
+                    Ok(list) => Ok(list),
+                    Err(e) => Err(vec![json!({ "error": e })]),
+                }
             }
-        } // Return error if cwd fails
+            Err(ref e)
+                if e.to_string()
+                    .contains("Expected code [250], got response: 200 OK") =>
+            {
+                list_files(ftp_stream).map_err(|e| vec![json!({ "error": e })])
+            }
+            Err(e) => Err(vec![json!({ "error": e.to_string() })]),
+        }
+    })
+    .await;
+
+    // Properly unwrap the `Result<Result<..>>`
+    match result {
+        Ok(inner_result) => inner_result, // Unwrap inner `Result<Vec<Value>, Vec<Value>>`
+        Err(e) => Err(vec![json!({ "error": format!("Task failed: {}", e) })]), // Handle JoinError
     }
 }
 
-#[tauri::command]
-fn go_up_directory() -> Result<Vec<serde_json::Value>, String> {
-    // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
-    let mut ftp_stream = FTP_STREAM
-        .lock()
-        .map_err(|e| format!("Failed to acquire lock: {}", e))?;
+#[command]
+async fn download_file(file_name: String, to_path: String) -> Result<String, String> {
+    spawn_blocking(move || {
+        // ✅ Retrieve saved credentials
+        let credentials = FTP_CREDENTIALS.lock().unwrap();
+        let credentials = credentials
+            .as_ref()
+            .ok_or("Not connected to any FTP server")?;
 
-    // Attempt to connect if there is no existing connection
-    let ftp_stream = ftp_stream
-        .as_mut()
-        .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
+        // ✅ Create a new FTP connection using stored credentials
+        let mut ftp_stream = FtpStream::connect(&credentials.address)
+            .map_err(|e| format!("Failed to connect: {}", e))?;
 
-    // Attempt to change directory
-    match ftp_stream.cdup() {
-        Ok(_) => list_files(ftp_stream),
-        Err(e) => Err(format!("Failed to go up directory: {}", e)),
-    }
-}
+        // ✅ Attempt to login
+        ftp_stream
+            .login(&credentials.username, &credentials.password)
+            .map_err(|e| format!("Login failed: {}", e))?;
 
-// #[tauri::command]
-// fn upload_files(files: Vec<(String, String)>) -> Result<Vec<serde_json::Value>, String> {
-//     // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
-//     let mut ftp_stream = FTP_STREAM
-//         .lock()
-//         .map_err(|e| format!("Failed to acquire lock: {}", e))?;
-//     // Attempt to connect if there is no existing connection
-//     let ftp_stream = ftp_stream
-//         .as_mut()
-//         .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
-//     // Upload each file
-//     for (file_path, file_data) in files {
-//         upload_file(ftp_stream, file_path, file_data)
-//             .map_err(|e| format!("Error uploading file: {}", e))?;
-//     }
-//     // Return the list of files
-//     list_files(ftp_stream)
-// }
+        // ✅ Change to the stored directory before downloading
+        match ftp_stream.cwd(&credentials.current_path) {
+            Ok(_) => {} // Successfully changed directory
+            Err(e) => {
+                let error_msg = e.to_string();
+                if error_msg.contains("Expected code [250], got response: 200 OK") {
+                    // ✅ Ignore incorrect 200 OK response and continue
+                } else {
+                    return Err(format!("Failed to change directory: {}", error_msg));
+                }
+            }
+        }
 
-// #[tauri::command]
-// fn read_file(path: &str) -> Response {
-//     let data = std::fs::read(path).unwrap();
-//     tauri::ipc::Response::new(data);
-// }
+        // ✅ Retrieve the file and save it
+        ftp_stream
+            .retr(&file_name, |stream| {
+                let mut file = File::create(&to_path).map_err(FtpError::ConnectionError)?;
+                let mut buffer = Vec::new();
+                stream
+                    .read_to_end(&mut buffer)
+                    .map_err(FtpError::ConnectionError)?;
+                file.write_all(&buffer).map_err(FtpError::ConnectionError)?;
+                Ok(())
+            })
+            .map_err(|e| {
+                format!(
+                    "FTP download error: {} - Path: {path}",
+                    e,
+                    path = &credentials.current_path
+                )
+            })?;
 
-#[tauri::command]
-async fn download_file(file_name: String, reader: tauri::ipc::Channel<&[u8]>) {
-    let mut ftp_stream = FTP_STREAM
-        .lock()
-        .map_err(|e| format!("Failed to acquire lock: {}", e))
-        .unwrap();
+        ftp_stream.quit().ok(); // Close the connection gracefully
 
-    let ftp_stream = ftp_stream
-        .as_mut()
-        .ok_or_else(|| "Failed to establish FTP stream".to_string())
-        .unwrap();
-
-    let buffer = std::io::Cursor::new(Vec::new());
-    ftp_stream.retr(file_name.as_str(), |mut stream| {
-        std::io::copy(&mut stream, &mut buffer.clone()).unwrap();
-        reader.send(&buffer.get_ref()).unwrap();
-        Ok(())
-    });
+        Ok(format!("File downloaded successfully to {}", to_path))
+    })
+    .await
+    .map_err(|e| format!("Failed to run task: {}", e))?
 }
 
 #[tauri::command]
-fn delete_files(file_names: Vec<String>) -> Result<Vec<serde_json::Value>, String> {
-    // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
-    let mut ftp_stream = FTP_STREAM
-        .lock()
-        .map_err(|e| format!("Failed to acquire lock: {}", e))?;
+async fn delete_files(file_names: Vec<String>) -> Result<Vec<serde_json::Value>, String> {
+    spawn_blocking(move || {
+        // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
+        let mut ftp_stream = FTP_STREAM
+            .lock()
+            .map_err(|e| format!("Failed to acquire lock: {}", e))?;
 
-    // Attempt to connect if there is no existing connection
-    let ftp_stream = ftp_stream
-        .as_mut()
-        .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
+        // Attempt to connect if there is no existing connection
+        let ftp_stream = ftp_stream
+            .as_mut()
+            .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
 
-    // Delete each file
-    for file_name in file_names {
-        delete_file(ftp_stream, file_name).map_err(|e| format!("Error deleting file: {}", e))?;
-    }
+        // Delete each file
+        for file_name in file_names {
+            delete_file(ftp_stream, file_name)
+                .map_err(|e| format!("Error deleting file: {}", e))?;
+        }
 
-    // Return the list of files
-    list_files(ftp_stream)
+        // Return the list of files
+        list_files(ftp_stream)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
 }
 
 #[tauri::command]
-fn refresh_files() -> Result<Vec<serde_json::Value>, String> {
-    // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
-    let mut ftp_stream = FTP_STREAM
-        .lock()
-        .map_err(|e| format!("Failed to acquire lock: {}", e))?;
+async fn refresh_files() -> Result<Vec<serde_json::Value>, String> {
+    spawn_blocking(move || {
+        // Acquire lock on the FTP_STREAM to get safe access to Option<FtpStream>
+        let mut ftp_stream = FTP_STREAM
+            .lock()
+            .map_err(|e| format!("Failed to acquire lock: {}", e))?;
 
-    // Attempt to connect if there is no existing connection
-    let ftp_stream = ftp_stream
-        .as_mut()
-        .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
+        // Attempt to connect if there is no existing connection
+        let ftp_stream = ftp_stream
+            .as_mut()
+            .ok_or_else(|| "Failed to establish FTP stream".to_string())?;
 
-    // Return the list of files
-    list_files(ftp_stream)
+        // Return the list of files
+        list_files(ftp_stream)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
 }
-
-// fn upload_file(stream: &mut FtpStream, file_path: String, file_data: String) -> Result<(), String> {
-//     // Create a reader from the file data
-//     let mut reader = std::io::Cursor::new(file_data.into_bytes());
-//     // Attempt to upload the file
-//     match stream.put(file_path.as_str(), &mut reader) {
-//         Ok(_) => Ok(()),
-//         Err(e) => Err(format!("Failed to upload file: {}", e)),
-//     }
-// }
 
 fn delete_file(stream: &mut FtpStream, file_name: String) -> Result<(), String> {
     // Attempt to delete the file
@@ -331,12 +358,11 @@ fn list_files(stream: &mut FtpStream) -> Result<Vec<serde_json::Value>, String> 
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-// use tauri::Manager;
-// use window_vibrancy::{apply_mica, clear_mica};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(StateFlags::POSITION | StateFlags::SIZE)
@@ -347,10 +373,9 @@ pub fn run() {
             connect_ftp_server,
             change_directory,
             disconnect_ftp_server,
-            go_up_directory,
             refresh_files,
             delete_files,
-            // read_file
+            download_file
         ])
         .setup(move |app| {
             let window = app.get_webview_window("main").unwrap();
@@ -364,10 +389,15 @@ pub fn run() {
             let _ = window.set_decorations(false);
             let _ = window.set_shadow(false);
             let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-          .inner_size(750.0, 900.0);
+                .inner_size(750.0, 900.0);
 
-            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 100.0, height: 100.0 })).unwrap();
-            
+            let _ = window
+                .set_size(tauri::Size::Logical(tauri::LogicalSize {
+                    width: 100.0,
+                    height: 100.0,
+                }))
+                .unwrap();
+
             // #[cfg(target_os = "macos")]
             // window.set_transparent_titlebar(true, true);
 

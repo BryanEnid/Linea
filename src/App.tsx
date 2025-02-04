@@ -28,7 +28,6 @@ function App() {
   };
 
   const handleTitleBarClick = (item) => {
-    console.log(showConnectModal);
     if (!showConnectModal) setShowConnectModal(item === "connect");
   };
 

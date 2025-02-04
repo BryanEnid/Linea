@@ -1,4 +1,5 @@
 import { FileExplorerRow } from "./types";
+import { save, open } from "@tauri-apps/plugin-dialog";
 
 export const sizeFormatter = (bytes: number) => {
   const units = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
@@ -30,3 +31,10 @@ export const sortFilesByType = (files: FileExplorerRow[], ascending = true) => {
     return ascending ? a.file_type.localeCompare(b.file_type) : b.file_type.localeCompare(a.file_type);
   });
 };
+
+export async function getSavePath({ file_name }: FileExplorerRow) {
+  const title = "Choose Save Location";
+  const filePath = await save({ title, defaultPath: file_name });
+
+  return { filePath };
+}

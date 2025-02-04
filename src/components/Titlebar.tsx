@@ -27,7 +27,7 @@ export const Titlebar = ({ onMenuClickItem }: { onMenuClickItem: (item: string) 
           </Button>
         </div>
 
-        <div>
+        <div className="fixed top-0 right-0 bg-primary-foreground rounded-tr-[13px] whitespace-nowrap">
           <div
             className="inline-flex justify-center items-center w-12 h-12 select-none hover:brightness-50 hover:bg-primary-foreground"
             id="titlebar-minimize"

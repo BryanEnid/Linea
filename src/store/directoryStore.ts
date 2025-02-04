@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { FileExplorerRow } from "@/types";
-import { sortFilesByName, sortFilesByType } from "@/utils";
+import { getSavePath, sortFilesByName, sortFilesByType } from "@/utils";
 
 interface DirectoryStoreState {
   files: FileExplorerRow[];
@@ -11,7 +12,7 @@ interface DirectoryStoreState {
 
   refreshFiles: () => Promise<void>;
   deleteFiles: (fileNames: string[]) => Promise<void>;
-  downloadFile: (fileName: string) => Promise<void>;
+  downloadFile: (file: FileExplorerRow) => Promise<void>;
 }
 
 export const useDirectoryStore = create<DirectoryStoreState>((set) => ({
@@ -35,10 +36,19 @@ export const useDirectoryStore = create<DirectoryStoreState>((set) => ({
     await invoke("delete_files", { fileNames });
     await useDirectoryStore.getState().refreshFiles();
   },
-  downloadFile: async (fileName: string) => {
-    const res = await invoke("download_file", { fileName });
-    console.log(res);
+  downloadFile: async (file: FileExplorerRow) => {
+    const { filePath } = await getSavePath(file);
+    invoke("download_file", { fileName: file.file_name, toPath: filePath })
+      .then((msg) => console.log(msg))
+      .catch((err) => console.error("Download error:", err));
+
+    // Listen for completion
+    listen("download_complete", (event) => {
+      console.log("Download finished:", event.payload);
+      alert(event.payload); // Show a message
+    });
   },
+  uploadFile: async (file: File) => {},
 }));
 
 const sortFiles = (files: FileExplorerRow[]) => {
