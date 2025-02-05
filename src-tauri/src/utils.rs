@@ -11,6 +11,10 @@ pub fn delete_file(stream: &mut FtpStream, file_name: String) -> Result<(), Stri
     }
 }
 
+struct FileDetails {
+    name: String,
+}
+
 pub fn list_files(stream: &mut FtpStream) -> Result<Vec<serde_json::Value>, String> {
     // Attempt to list files
     match stream.list(None) {
@@ -97,29 +101,7 @@ pub fn list_files(stream: &mut FtpStream) -> Result<Vec<serde_json::Value>, Stri
                 })
                 .collect::<Vec<(String, serde_json::Value)>>();
 
-            // Sort the result by file name in alphabetical order
-            // result.sort_by(|a, b| a.0.cmp(&b.0));
-
-            // Extract just the JSON objects after sorting by name
-            // let sorted_result = result.into_iter().map(|(_, json)| json).collect::<Vec<_>>();
-
-            // Ok(sorted_result)
-
-            // Remove this
             let result = result.into_iter().map(|(_, json)| json).collect::<Vec<_>>();
-            // result.insert(
-            //     0,
-            //     json!({
-            //         "line": "",
-            //         "file_type": "directory",
-            //         "permissions": "drwxr-xr-x",
-            //         "owner": "root",
-            //         "group": "root",
-            //         "size": 0,
-            //         "date": "1970-01-01",
-            //         "file_name": "..",
-            //     }),
-            // );
             Ok(result)
         }
         Err(e) => Err(format!("Failed to list files: {}", e)),

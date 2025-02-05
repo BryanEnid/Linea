@@ -4,7 +4,7 @@ use crate::utils::{delete_file, list_files, update_stored_path};
 use ftp::FtpError;
 use ftp::FtpStream;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::fs::File;
 use std::io::Write;
 use tauri::async_runtime::spawn_blocking;
@@ -17,7 +17,9 @@ pub struct ApiResponse<T> {
     pub data: T,
 }
 
-fn success_response<T>(message: &str, data: T) -> ApiResponse<T> {
+type FileListResult = Vec<Value>;
+
+fn success_response<T>(message: &str, data: Value) -> ApiResponse<T> {
     ApiResponse {
         success: true,
         message: message.to_string(),
@@ -25,17 +27,21 @@ fn success_response<T>(message: &str, data: T) -> ApiResponse<T> {
     }
 }
 
-fn error_response<T>(message: &str, data: T) -> ApiResponse<T> {
-    ApiResponse {
+fn error_response<T>(message: &str, data: T) -> Result<ApiResponse<T>, ApiResponse<T>> {
+    Ok(ApiResponse {
         success: false,
         message: message.to_string(),
         data,
-    }
+    })
 }
 
 #[command]
-pub async fn connect_ftp_server(address: &str, username: &str, password: &str) -> FileListResult {
-    let address = address.to_string(); // Convert &str to String
+pub async fn connect_ftp_server(
+    address: &str,
+    username: &str,
+    password: &str,
+) -> Result<ApiResponse<FileListResult>, ApiResponse<FileListResult>> {
+    let address = address.to_string();
     let username = username.to_string();
     let password = password.to_string();
 
@@ -71,19 +77,20 @@ pub async fn connect_ftp_server(address: &str, username: &str, password: &str) -
 
         list_files(ftp_stream)
     })
-    .await
-    .map_err(|e| format!("Failed to connect: {}", e))?;
+    .await;
 
-    result
+    match result {
+        Ok(files) => Ok(success_response("Successfully connected.", files)),
+        Err(e) => Ok(error_response(&e.to_string(), json!([]))),
+    }
 }
 
 #[command]
-pub fn disconnect_ftp_server() -> ApiResponse {
+pub fn disconnect_ftp_server() -> ApiResponse<()> {
     // Lock the FTP_STREAM Mutex to get safe access to the Option<FtpStream>
     let mut ftp_stream = match FTP_STREAM.lock() {
         Ok(stream) => stream,
-        Err(e) => error_response(format!("Failed to acquire lock: {}", e), data)
-        }
+        Err(e) => error_response(format!("Failed to acquire lock: {}", e), data),
     };
 
     // Attempt to disconnect if there is an existing connection
@@ -109,7 +116,7 @@ pub fn disconnect_ftp_server() -> ApiResponse {
 }
 
 #[command]
-pub async fn download_file(file_name: String, to_path: String) -> ApiResponse {
+pub async fn download_file(file_name: String, to_path: String) -> ApiResponse<()> {
     let result = spawn_blocking(move || {
         let creds_lock = FTP_CREDENTIALS.try_lock();
         if creds_lock.is_err() {
